@@ -1,0 +1,97 @@
+name: Deploy
+
+on: ['deployment']
+
+jobs:
+  deployment:
+    runs-on: [self-hosted, pli, lx]
+    if: github.actor == 'camelotMachineUser' || contains(github.event.deployment.environment, 'dev')
+    env:
+      TF_VAR_github_token: ${{ secrets.MU_GITHUB_TOKEN }}
+      TF_VAR_github_user: CamelotMachineUser
+      TF_VAR_key_id: dc:f9:1a:80:15:fa:06:99:ef:d2:8d:ad:d6:46:f2:03
+      AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+      AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+      TRITON_KEY_ID: dc:f9:1a:80:15:fa:06:99:ef:d2:8d:ad:d6:46:f2:03
+      TRITON_PROFILE: env
+    steps:
+    - name: production token check
+      if: contains(github.event.deployment.environment, 'prd')
+      run: |
+        if [ "$PROD_SECRET" != "$PROD_SECRET_DEPLOYMENT" ]; then
+            echo 'Sorry ${{ github.actor }}, deployments to production account require a valid production token.' && exit 1
+        fi
+        exit 0
+      env:
+        PROD_SECRET: ${{ secrets.IE_TRITON_PROD_TOKEN }}
+        PROD_SECRET_DEPLOYMENT: ${{ github.event.deployment.payload.production_token }}
+    - name: Set DC_LOCATION and CLSENV
+      run: |
+        echo "DC_LOCATION=$(echo ${{ github.event.deployment.environment }} | cut -f1 -d-)" >> $GITHUB_ENV
+        echo "CLSENV=$(echo ${{ github.event.deployment.environment }} | cut -f2 -d-)" >> $GITHUB_ENV
+    - name: Set dynamic environment variables
+      run: |
+        if [ "$DC_LOCATION" == "pdc" ] || [ "$DC_LOCATION" == "sdc" ]; then
+            CLOUD_URL=https://cloudapi.${DC_LOCATION}.triton.lotto.ie
+            DOCKER_URL=tcp://docker.${DC_LOCATION}.triton.lotto.ie:2376
+            echo "TRITON_URL=$CLOUD_URL" >> $GITHUB_ENV
+            echo "TF_VAR_url=$CLOUD_URL" >> $GITHUB_ENV
+            echo "TF_VAR_docker_host=$DOCKER_URL" >> $GITHUB_ENV
+            echo "TRITON_ACCOUNT=${CLSENV:0:3}" >> $GITHUB_ENV
+        else
+            echo 'Sorry ${{ github.actor }}, dc_location payload needs to be set.' && exit 1
+        fi
+    - uses: actions/checkout@v2
+      with:
+        repository: camelotls/terraform
+        token: '${{ secrets.MU_GITHUB_TOKEN }}'
+    - uses: webfactory/ssh-agent@v0.4.1
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        ssh-auth-sock: /tmp/ssh-auth.sock.${{ github.run_id }}.${{ github.run_number }}
+    - name: 'deployment pending'
+      uses: 'deliverybot/deployment-status@v1'
+      with:
+        state: 'pending'
+        token: '${{ github.token }}'
+    - name: credential helpers
+      run: |
+         git config --global credential.helper '!f() { sleep 1; echo "username=${TF_VAR_github_user}"; echo "password=${TF_VAR_github_token}"; }; f' --replace-all
+    - name: triton profile docker-setup
+      run: triton profile docker-setup -y
+    - name: terraform init
+      run: |
+         cd apps/`basename ${{ github.repository }}`
+         terraform init -reconfigure -backend-config=env/${DC_LOCATION}-fabric-${CLSENV}.tfbackend
+    - name: terraform update
+      run: |
+         cd apps/`basename ${{ github.repository }}`
+         terraform get -update
+    - name: terraform plan
+      run: |
+         cd apps/`basename ${{ github.repository }}`
+         terraform plan \
+           -var-file="../../globals/${DC_LOCATION}-fabric-${CLSENV}.tfvars" \
+           -var-file="env/${DC_LOCATION}-fabric-${CLSENV}.tfvars" \
+           -var "docker_tag=${GITHUB_SHA:0:8}" \
+           -out=my.tfplan
+    - name: terraform apply
+      run: |
+         cd apps/`basename ${{ github.repository }}`
+         terraform apply "my.tfplan"
+    - name: 'deployment success'
+      if: success()
+      uses: 'deliverybot/deployment-status@v1'
+      with:
+        state: 'success'
+        token: '${{ github.token }}'
+    - name: 'deployment failure'
+      if: failure()
+      uses: 'deliverybot/deployment-status@v1'
+      with:
+        state: 'failure'
+        token: '${{ github.token }}'
+    - name: 'cleanup'
+      if: always()
+      run: |
+         rm -f /tmp/ssh-auth.sock.${{ github.run_id }}.${{ github.run_number }}

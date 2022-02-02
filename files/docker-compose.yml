@@ -1,0 +1,44 @@
+version: '3.7'
+
+services:
+
+  mil:
+    image: docker.pkg.github.com/camelotls/ctp-lottery-ie-mil/ctp.lottery.ie-mil:${SERVICE_CONTAINER_IMAGE_TAG:-latest}
+    container_name: mil-standalone
+    environment:
+      PROFILE:
+        "${PROFILE}"
+      JAVA_OPTS:
+        "${JAVA_OPTS:--XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=70 -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=256m -XX:MaxRAMFraction=1 -XX:+UnlockExperimentalVMOptions
+        -Xmx800m -Xms800m
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Dcom.sun.management.jmxremote.port=9999
+        -Dcom.sun.management.jmxremote.rmi.port=9999
+        -Djava.rmi.server.hostname=127.0.0.1}
+                    -Djava.rmi.server.hostname=127.0.0.1 -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+    ports:
+      - "8080:8080"
+      - "5005:5005"
+      - "8531:8531"
+      - "9999:9999"
+
+  mil-func:
+    image: docker.pkg.github.com/camelotls/ctp-lottery-ie-mil/ctp.lottery.ie-mil:${SERVICE_CONTAINER_IMAGE_TAG:-latest}
+    container_name: mil
+    environment:
+      JAVA_OPTS:
+        "${JAVA_OPTS:--XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=70 -XX:CompressedClassSpaceSize=64m -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=256m -XX:MaxRAMFraction=1 -XX:+UnlockExperimentalVMOptions}
+              -Djava.rmi.server.hostname=127.0.0.1 -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+      PROFILE: "test"
+    ports:
+      - "8080:8080"
+      - "5005:5005"
+      - "8531:8531"
+
+  mil-mocks:
+    image: docker.pkg.github.com/camelotls/ctp-lottery-ie-mil/mil-mocks:${SERVICE_CONTAINER_IMAGE_TAG:-latest}
+    container_name: mil-mocks
+    ports:
+      - "8888:8080"
