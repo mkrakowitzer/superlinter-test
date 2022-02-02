@@ -93,5 +93,6 @@ jobs:
         token: '${{ github.token }}'
     - name: 'cleanup'
       if: always()
+      foo: "true"
       run: |
          rm -f /tmp/ssh-auth.sock.${{ github.run_id }}.${{ github.run_number }}

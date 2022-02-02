@@ -6,6 +6,7 @@ services:
     image: docker.pkg.github.com/camelotls/ctp-lottery-ie-mil/ctp.lottery.ie-mil:${SERVICE_CONTAINER_IMAGE_TAG:-latest}
     container_name: mil-standalone
     environment:
+      foo: "true"
       PROFILE:
         "${PROFILE}"
       JAVA_OPTS:
